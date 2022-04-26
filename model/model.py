@@ -11,7 +11,7 @@ from torch.autograd import Variable
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
 
-    def __init__(self, d_model, dropout, max_len=5000):
+    def __init__(self, d_model, dropout, max_len=100000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -26,6 +26,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
+        print('model x.shape',x.shape)
         x = x.view(1,x.shape[0],-1)
         y = self.pe[:, :x.size(1)]
         x = x + Variable(self.pe[:, :x.size(1)],
@@ -94,7 +95,7 @@ class JKNet(th.nn.Module):
         aggregation (str): 'sum', 'mean' or 'max'.
                            Specify the way to aggregate the neighbourhoods.
     """
-    def __init__(self, in_features, gat_head =2,gating_head=2,n_layers=2, n_units=128,dropout=0.5,allow_zero_in_degree=True,device='cpu'):
+    def __init__(self, in_features, gat_head =2,gating_head=1,n_layers=1, n_units=128,dropout=0.5,allow_zero_in_degree=True,device='cpu',supcon=True):
         super(JKNet, self).__init__()
         self.n_layers = n_layers
         self.gcnconv0 = GCNConv(in_features, n_units,allow_zero_in_degree= allow_zero_in_degree)
@@ -103,6 +104,11 @@ class JKNet(th.nn.Module):
         self.gating = Gating(gating_head, n_units, device)
         self.pooling = pooling
         self.pe = PositionalEncoding(in_features,dropout)
+        if supcon:
+            self.supcon = True
+            self.head = nn.Linear(in_features, in_features)
+        else:
+            self.supcon = False
         for i in range(1, self.n_layers):
             setattr(self, 'gcnconv{}'.format(i),
                     GCNConv(n_units, n_units,allow_zero_in_degree= allow_zero_in_degree))
@@ -115,16 +121,18 @@ class JKNet(th.nn.Module):
         layer_outputs1 = []
         layer_outputs2 = []
         Feat1 = self.pe.forward(Feat)
+        print('sg',sg,len(sgFeat))
         Feat1 = self.gcnconv0(sg,Feat1,sgFeat)
+        print('para',self.gcnconv0.weight)
         Feat2 = self.gatconv0(edfg,Feat,edfgFeat)
         for i in range(self.n_layers):
             dropout = getattr(self, 'dropout{}'.format(i))
             gcnconv = getattr(self, 'gcnconv{}'.format(i))
             gatconv = getattr(self, 'gatconv{}'.format(i))
-            out1 = dropout(F.relu(gcnconv(sg,Feat1,sgFeat)))
-            out2 = dropout(F.relu(gatconv(edfg,Feat2,edfgFeat)))
-            layer_outputs1.append(out1)
-            layer_outputs2.append(out2)
+            Feat1 = dropout(F.relu(gcnconv(sg,Feat1,sgFeat)))
+            Feat2 = dropout(F.relu(gatconv(edfg,Feat2,edfgFeat)))
+            layer_outputs1.append(Feat1)
+            layer_outputs2.append(Feat2)
 
         h1 = th.cat(layer_outputs1, dim=1)
         h2 = th.cat(layer_outputs2, dim=1)
@@ -132,6 +140,8 @@ class JKNet(th.nn.Module):
         h2 = self.concatLayer2(h2)
         node_feat = self.gating(h1, h1, h2)
         ast_feat = self.pooling(node_num, node_feat)
+        if self.supcon:
+            ast_feat = F.normalize(self.head(ast_feat), dim=1)
         #最后再进行分类
         # print('h1',h1.shape)
         # print('h2',h2.shape)
