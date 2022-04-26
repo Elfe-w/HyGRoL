@@ -1,5 +1,4 @@
 import argparse
-
 import dgl
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -16,9 +15,10 @@ from torch.utils.data.dataloader import DataLoader
 from dataset.javaParser import pipline,gcjPipline
 from dataset.cParser import cloPipline,claPipline
 from model.model import CLO,CLA,JKNet
-from model.losses import SupConLoss
+from model.losses import supcon
+from  util import split_dataset
 import torch as th
-
+import torch.nn as nn
 L2_PENALTY = 0.0005
 
 def node2emb(nodeInfo, keyword='gcj'):
@@ -30,7 +30,7 @@ def node2emb(nodeInfo, keyword='gcj'):
         for k, v in nodeInfo.items():
             str = v.replace("\n", "")
             list = str.split()
-            print(word2vec[list[0]])
+            # print(word2vec[list[0]])
             nodeemb.append(word2vec[list[0]])
     else:
         if type(nodeInfo).__name__ == 'list':
@@ -54,29 +54,36 @@ def main():
                         type=int, default=8)
     parser.add_argument('--learning_rate', '-lr',
                         help='Learning rate',
-                        type=float, default=0.0005)
-    parser.add_argument('--n-layers',
+                        type=float, default=0.0001)
+    parser.add_argument('--n_layers', '-nl',
                         help='Number of convolution layers',
-                        type=int, default=4)
-    parser.add_argument('--n-units',
+                        type=int, default=2)
+    parser.add_argument('--n-units', '-nu',
                         help='Size of middle layers.',
                         type=int, default=128)
-    parser.add_argument('--func_path',
+    parser.add_argument('--train_ratio', '-tr',
+                        help='Ratio of train sets.',
+                        type=int, default=8)
+    parser.add_argument('--val_ratio', '-vr',
+                        help='Ratio of val sets.',
+                        type=int, default=1)
+    parser.add_argument('--func_path', '-fp',
                         help='The path to source code dataset',
                         type=str,
                         default='data/gcj_funcs.pkl')
-    parser.add_argument('--clone_pair_path',
+    parser.add_argument('--clone_pair_path', '-cpp',
                         help='The path to source code dataset',
                         type=str,
                         default='data/gcj_pair_ids.pkl')
-    parser.add_argument('--datasetName',
+    parser.add_argument('--datasetName', '-dn',
                         help='The name to the datasetName',
                         type=str,choices=('oj', 'gcj'),
                         default='gcj')
-    parser.add_argument('--model_path',
+    parser.add_argument('--model_path', '-mp',
                         help='The path to save model',
                         type=str,
                         default='model/model.pth')
+
 
     args = parser.parse_args()
     use_cuda = torch.cuda.is_available()
@@ -92,17 +99,19 @@ def main():
             parserCode = claPipline
         else:
             raise Exception("wrong dataName!")
-    model = JKNet(args.n_units, n_units=args.n_units).to(device)
-    dataloader = DataLoader(Dataset, batch_size=args.batch_size, shuffle=True)
-    loss_function = SupConLoss()
+
+    from test import Classifier
+    model = JKNet(args.n_units,n_layers=args.n_layers, n_units=args.n_units).to(device)
+    print(model)
+    shuffle = True
+    train_loader, validate_loader, test_loader = split_dataset(Dataset,shuffle,args.batch_size,args.train_ratio,args.val_ratio)
 
 
-    optimizer = th.optim.Adam(model.parameters(), lr= args.learning_rate)
-
+    optimizer = th.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     for epoch in range(1, args.epochs + 1):
         model.train()
-        for i, item in enumerate(tqdm(dataloader)):
+        for i, item in enumerate(tqdm(train_loader)):
             index, code, labels = item
             nodeInfo, srcSg, srcEdfg, dstSg, dstEdfg, nodeNum, sgInfo, edfgInfo = parserCode(code,dataSetName=args.datasetName)
             Feat = th.FloatTensor(node2emb(nodeInfo,args.datasetName)).to(device)
@@ -110,18 +119,15 @@ def main():
             edfg = dgl.graph((srcEdfg, dstEdfg)).to(device)
             sgFeat = th.FloatTensor(node2emb(sgInfo,args.datasetName)).to(device)
             edfgFeat = th.FloatTensor(node2emb(edfgInfo,args.datasetName)).to(device)
-            # print('sg',len(srcSg),len(dstSg),len(srcEdfg),len(dstEdfg),len(sgInfo),len(edfgInfo))
-            res = model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
-            res = res.view(res.shape[0],1,-1)
-            _, predicted = torch.max(res.data, 1)
-            # print('res',predicted)
-            # print('label',labels)
-            print('res shape', res.shape)
-            print('re shape',res.shape)
-            loss = loss_function(res, labels)
+            res =  model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
+            loss = supcon(res,labels)
+            
+            loss.requires_grad_(True)
             print('loss',loss)
             loss.backward()
             optimizer.step()
+            # break
+
     th.save(model.state_dict(), args.model_path)
 
 
