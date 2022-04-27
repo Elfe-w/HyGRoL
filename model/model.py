@@ -1,3 +1,4 @@
+
 from gcnlayer import GCNConv
 from gatlayer import GATConv
 import torch as th
@@ -26,7 +27,6 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        print('model x.shape',x.shape)
         x = x.view(1,x.shape[0],-1)
         y = self.pe[:, :x.size(1)]
         x = x + Variable(self.pe[:, :x.size(1)],
@@ -95,7 +95,7 @@ class JKNet(th.nn.Module):
         aggregation (str): 'sum', 'mean' or 'max'.
                            Specify the way to aggregate the neighbourhoods.
     """
-    def __init__(self, in_features, gat_head =2,gating_head=1,n_layers=1, n_units=128,dropout=0.5,allow_zero_in_degree=True,device='cpu',supcon=True):
+    def __init__(self, in_features, gat_head =2,gating_head=2,n_layers=4, n_units=128,dropout=0.5,allow_zero_in_degree=True,device='cpu',supcon=True):
         super(JKNet, self).__init__()
         self.n_layers = n_layers
         self.gcnconv0 = GCNConv(in_features, n_units,allow_zero_in_degree= allow_zero_in_degree)
@@ -121,9 +121,7 @@ class JKNet(th.nn.Module):
         layer_outputs1 = []
         layer_outputs2 = []
         Feat1 = self.pe.forward(Feat)
-        print('sg',sg,len(sgFeat))
         Feat1 = self.gcnconv0(sg,Feat1,sgFeat)
-        print('para',self.gcnconv0.weight)
         Feat2 = self.gatconv0(edfg,Feat,edfgFeat)
         for i in range(self.n_layers):
             dropout = getattr(self, 'dropout{}'.format(i))
@@ -142,9 +140,6 @@ class JKNet(th.nn.Module):
         ast_feat = self.pooling(node_num, node_feat)
         if self.supcon:
             ast_feat = F.normalize(self.head(ast_feat), dim=1)
-        #最后再进行分类
-        # print('h1',h1.shape)
-        # print('h2',h2.shape)
         return ast_feat
 
 
@@ -167,7 +162,7 @@ class CLA(th.nn.Module):
         self.jknet = JKNet(in_features, gat_head=gat_head,
                 gating_head=gating_head, n_layers=n_layers,
                 n_units=n_units, dropout=dropout,
-                 allow_zero_in_degree=allow_zero_in_degree, device=device)
+                 allow_zero_in_degree=allow_zero_in_degree, device=device,supcon=False)
         self.cla = nn.Sequential(
             nn.Linear( n_units, 128),
             nn.ReLU(),
@@ -200,7 +195,7 @@ class CLO(th.nn.Module):
         self.jknet = JKNet(in_features, gat_head=gat_head,
                 gating_head=gating_head, n_layers=n_layers,
                 n_units=n_units, dropout=dropout,
-                 allow_zero_in_degree=allow_zero_in_degree, device=device)
+                 allow_zero_in_degree=allow_zero_in_degree, device=device,supcon=False)
         self.cla = nn.Sequential(
             nn.Linear( n_units, 128),
             nn.ReLU(),
@@ -241,4 +236,3 @@ if __name__=="__main__":
     edfgfeat = th.ones(5, 10)
     conv = CLO(10, 2,n_units=10)
     res = conv(node_num,g1,g2, feat,sgfeat, edfgfeat,node_num,g1,g2, feat,sgfeat, edfgfeat)
-    print(res.shape)
