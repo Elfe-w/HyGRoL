@@ -411,7 +411,7 @@ def parserJava(code,dataSetName = 'bcb'):
 def parserJavaForCorpus(code,dataSetName = 'bcb'):
     flagInit()
     ast=get_java_ast(code,dataSetName = dataSetName)
-    global ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allSgInfo,allEdfgInfo
+    global ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allSgInfo,allEdfgInfo,nodeInfo
     tempId = ID
     # java_trans_path_list(code,dataSetName = dataSetName)
     ID = tempId
@@ -498,8 +498,6 @@ def gcjPipline(data,dataSetName=''):
 
     if type(data).__name__ == 'tuple':
         for code in data:
-            sava_path = ['../data/parserCode/oj_node.txt', '../data/parserCode/oj_sg.txt',
-                         '../data/parserCode/oj_edfg.txt']
             parserJava(code,dataSetName = dataSetName)
     return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo
 

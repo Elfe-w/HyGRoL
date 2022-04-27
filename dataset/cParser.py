@@ -316,7 +316,7 @@ def print_code():
     print('dataDst', dataDst)
 
 
-def parserC(save_path,code):
+def parserC(code):
     parser = c_parser.CParser()
     ast = parser.parse(code)
     global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo,batchAstNode
@@ -344,7 +344,6 @@ def parserC(save_path,code):
     allEdfgDst += edfgEdgDst
     allSgInfo += sgEdgInfo
     allEdfgInfo += edfgEdgInfo
-
     '''
     中间的边生成
     '''
@@ -362,10 +361,11 @@ def parserC(save_path,code):
     flagInit()
 
 def parserCForCorpus(code):
+    read_cnode()
     flagInit()
     parser = c_parser.CParser()
     ast = parser.parse(code)
-    global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo
+    global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo,nodeInfo
     tempId = ID
     # java_trans_path_list(code)
     ID = tempId
@@ -406,10 +406,11 @@ def claPipline(data,dataSetName=''):
 
     if type(data).__name__ == 'tuple':
         for code in data:
-            sava_path = ['../data/parserCode/oj_node.txt', '../data/parserCode/oj_sg.txt',
-                         '../data/parserCode/oj_edfg.txt']
             read_cnode()
-            parserC(sava_path, code)
+            parserC(code)
+    else:
+        read_cnode()
+        parserC(data)
     return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo
 
 def cloPipline(data1,data2,dataSetName=''):
@@ -429,15 +430,13 @@ def cloPipline(data1,data2,dataSetName=''):
     allEdfgInfo = []
     batchAstNode = []
 
-    sava_path = ['../data/parserCode/oj_node.txt', '../data/parserCode/oj_sg.txt',
-                 '../data/parserCode/oj_edfg.txt']
     srcSg1, srcEdfg1, dstSg1, dstEdfg1, nodeNum1, \
     srcSg2, srcEdfg2, dstSg2, dstEdfg2, \
     nodeNum2, sgInfo1, edfgInfo1, sgInfo2, edfgInfo2, nodeInfo1, nodeInfo2 = [list() for x in range(16)]
     read_cnode()
     if type(data1).__name__ == 'tuple':
         for code in data1:
-            parserC(sava_path, code)
+            parserC(code)
             srcSg1 = copy.deepcopy(allSgSrc)
             srcEdfg1 = copy.deepcopy(allEdfgSrc)
             dstSg1 = copy.deepcopy(allSgDst)
@@ -458,7 +457,7 @@ def cloPipline(data1,data2,dataSetName=''):
     ID = 0
     if type(data2).__name__ == 'tuple':
         for code in data2:
-            parserC(sava_path, code)
+            parserC(code)
 
         srcSg2 = copy.deepcopy(allSgSrc)
         srcEdfg2 = copy.deepcopy(allEdfgSrc)

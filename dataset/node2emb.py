@@ -48,10 +48,10 @@ def pipline(keyword):
     '''
     1.获得语料库
     '''
-    # dataPath = '../data/bcb_funcs.pkl'
-    # saveRootPath = '../data/emb/ '
-    # keyword = 'bcb'
-    # save_corpus(dataPath, saveRootPath, keyword)
+    dataPath = '../data/'+keyword+'_funcs.pkl'
+    print(dataPath)
+    saveRootPath = '../data/emb/'
+    save_corpus(dataPath, saveRootPath, keyword)
     '''
     2.保存编码
     '''
@@ -73,15 +73,23 @@ def pipline(keyword):
 
 
 if __name__ == '__main__':
+    pipline('oj')
+    pipline('gcj')
     pipline('bcb')
+    # #Enumerator
     # embSavePath = '../data/emb/oj_w2v_128'
     # word2vec = Word2Vec.load(embSavePath).wv
     # vocab = word2vec.vocab
+    # if 'value' in vocab:
+    #     print('000')
+    # else:
+    #     print('777')
     # print('-' * 20, '编码输出测试', '-' * 20)
     # print(word2vec['value'])
     # print(vocab['route'])
     # print(vocab['parent'])
     # print(vocab['child'])
+    # print(vocab['Enumerator'])
     # path = '../data/emb/gcj_w2v_128'
     # word2vec = Word2Vec.load(path).wv
     # vocab = word2vec.vocab
@@ -101,5 +109,5 @@ if __name__ == '__main__':
     # print(vocab['CompilationUnit'])
     # print(vocab['PackageDeclaration'])
     # print('getVector: ', word2vec.get_vector('CompilationUnit'))
-    #
-    #
+
+
