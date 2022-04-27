@@ -17,8 +17,7 @@ from dataset.javaParser import pipline
 from dataset.cParser import cloPipline,claPipline
 from model.model import CLO,CLA
 import torch as th
-
-L2_PENALTY = 0.0005
+from  util import split_dataset,load_model
 
 def node2emb(nodeInfo, keyword='gcj'):
     nodeemb = []
@@ -77,34 +76,47 @@ def main():
                         type=int, default=100)
     parser.add_argument('--batch_size', '-b',
                         help='number of batch_size to train',
-                        type=int, default=8)
+                        type=int, default=64)
     parser.add_argument('--learning_rate', '-lr',
                         help='Learning rate',
-                        type=float, default=0.0005)
-    parser.add_argument('--n-layers',
+                        type=float, default=0.00001)
+    parser.add_argument('--n_layers',
                         help='Number of convolution layers',
                         type=int, default=4)
-    parser.add_argument('--n-units',
+    parser.add_argument('--n_units',
                         help='Size of middle layers.',
                         type=int, default=128)
-    parser.add_argument('--n-classes',
+    parser.add_argument('--n_classes',
                         help='the number of classes.',
+                        type=int, default=104)
+    parser.add_argument('--train_ratio', '-tr',
+                        help='Ratio of train sets.',
+                        type=int, default=8)
+    parser.add_argument('--val_ratio', '-vr',
+                        help='Ratio of val sets.',
                         type=int, default=1)
     parser.add_argument('--cloneChoices',
                         help='clone detection:0, classification:1',
-                        type=int, default=0)
+                        type=int, default=1)
     parser.add_argument('--func_path',
                         help='The path to source code dataset',
                         type=str,
-                        default='data/bcb_funcs.pkl')
+                        default='data/oj_funcs.pkl')
     parser.add_argument('--clone_pair_path',
                         help='The path to the clone_pair file',
                         type=str,
-                        default='data/bcb_pair_ids.pkl')
+                        default='data/oj_pair_ids.pkl')
     parser.add_argument('--datasetName',
                         help='The name to the datasetName',
                         type=str,choices=('oj', 'gcj', 'bcb'),
-                        default='bcb')
+                        default='oj')
+    parser.add_argument('--preModelChoices',
+                        help='no:0, yes:1',
+                        type=int, default=1)
+    parser.add_argument('--pre_model_path',
+                        help='The via supcon model ',
+                        type=str,
+                        default='model/model.pth')
 
     args = parser.parse_args()
     use_cuda = torch.cuda.is_available()
@@ -117,6 +129,10 @@ def main():
         clone = False
         model = CLA(args.n_units,args.n_classes,n_units=args.n_units).to(device)
 
+    if args.preModelChoices == 1:
+        pre_model_dict = torch.load(args.pre_model_path)
+        load_model(pre_model_dict,model)
+
     if args.datasetName == 'gcj' or args.datasetName == 'bcb':
         parserCode = pipline
         Dataset = loadJava.java_DATASET( file_path=args.func_path, clone_path=args.clone_pair_path)
@@ -127,14 +143,17 @@ def main():
                 parserCode = cloPipline
             else:
                 parserCode = claPipline
-    dataloader = DataLoader(Dataset, batch_size=args.batch_size, shuffle=True)
+    shuffle = True
+    train_loader, validate_loader, test_loader = split_dataset(Dataset, shuffle, args.batch_size, args.train_ratio,
+                                                               args.val_ratio)
+
+    # dataloader = DataLoader(Dataset, batch_size=args.batch_size, shuffle=True)
 
 
     optimizer = th.optim.Adam(model.parameters(), lr= args.learning_rate)
     precision, recall, f1 = 0, 0, 0
     predicts = []
     trues = []
-
     for epoch in range(1, args.epochs + 1):
         model.train()
         predicts1 = []
@@ -147,7 +166,15 @@ def main():
         trues4 = []
         predicts5 = []
         trues5 = []
-        for i, item in enumerate(tqdm(dataloader)):
+        epoch_acc = 0
+        epoch_num = 0
+        p, r, f = 0.0,0.0,0.0
+        p1, r1, f1 = 0.0, 0.0, 0.0
+        p2, r2, f2 = 0.0, 0.0, 0.0
+        p3, r3, f3 = 0.0, 0.0, 0.0
+        p4, r4, f4 = 0.0, 0.0, 0.0
+        p5, r5, f5 = 0.0, 0.0, 0.0
+        for i, item in enumerate(tqdm(train_loader)):
             if clone:
                 loss_function = th.nn.BCELoss()
                 index, code1, code2, labels = item
@@ -173,40 +200,37 @@ def main():
                         labels_list.append(1)
                     else:
                         labels_list.append(0)
-                # print('=' * 80)
 
                 labels_store = labels
                 labels= th.FloatTensor(labels_list)
                 labels = labels.view(-1, 1)
                 loss = loss_function(res, labels)
                 # print('labels', labels_store)
-                # predicted = (res.data > 0.5).cpu().numpy()
-                # predicts.extend(predicted)
-                # trues.extend(labels.cpu().numpy())
-                # num = 0
-                # for i in labels_store:
-                #     if i == 1:
-                #         trues1.extend(trues[num])
-                #         predicts1.extend(predicts[num])
-                #     elif i==2:
-                #         trues2.extend(trues[num])
-                #         predicts2.extend(predicts[num])
-                #     elif i==3:
-                #         trues3.extend(trues[num])
-                #         predicts3.extend(predicts[num])
-                #     elif i==4:
-                #         trues4.extend(trues[num])
-                #         predicts4.extend(predicts[num])
-                #     elif i==5:
-                #         trues5.extend(trues[num])
-                #         predicts5.extend(predicts[num])
-                #     num += 1
-                # 
-                # print('predictes',predicts,'\n',predicts1,predicts2,predicts3,predicts4,predicts5)
-                # print('true',trues,'\n',trues1,trues2,trues3,trues4,trues5)
-                # p, r, f, _ = precision_recall_fscore_support(trues, predicts, average='binary')
-                # print(p,r,f)
+                predicted = (res.data > 0.5).cpu().numpy()
+                predicts.extend(predicted)
+                trues.extend(labels.cpu().numpy())
+                num = 0
+                for i in labels_store:
+                    if i == 1:
+                        trues1.extend(trues[num])
+                        predicts1.extend(predicts[num])
+                    elif i==2:
+                        trues2.extend(trues[num])
+                        predicts2.extend(predicts[num])
+                    elif i==3:
+                        trues3.extend(trues[num])
+                        predicts3.extend(predicts[num])
+                    elif i==4:
+                        trues4.extend(trues[num])
+                        predicts4.extend(predicts[num])
+                    elif i==5:
+                        trues5.extend(trues[num])
+                        predicts5.extend(predicts[num])
+                    num += 1
 
+                print('predictes',predicts,'\n',predicts1,predicts2,predicts3,predicts4,predicts5)
+                print('true',trues,'\n',trues1,trues2,trues3,trues4,trues5)
+                print('p:{}; r:{}; f:{}'.format(p,r,f))
             else:
                 loss_function = CrossEntropyLoss_label_smooth
                 index, code, labels = item
@@ -219,15 +243,42 @@ def main():
                 # print('sg',len(srcSg),len(dstSg),len(srcEdfg),len(dstEdfg),len(sgInfo),len(edfgInfo))
                 res = model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
                 _, predicted = torch.max(res.data, 1)
-                # print('res',predicted)
-                # print('label',labels)
+                print('labels',labels)
+                print('predicted',predicted)
+                epoch_acc += (predicted == labels).sum()
+                epoch_num += len(labels)
+                print('acc:',(predicted == labels).sum()/float(len(labels)))
                 loss = loss_function(res, labels,device)
-            print(loss)
+            print('loss:{}'.format(loss))
             loss.backward()
             optimizer.step()
 
+        if clone:
+            p, r, f = 0.0, 0.0, 0.0
+            if args.datasetName == 'bcb':
+                weights = [0, 0.005, 0.001, 0.002, 0.010, 0.982]
+                p1, r1, f1, _ = precision_recall_fscore_support(trues1, predicts1, average='binary')
+                p2, r2, f2, _ = precision_recall_fscore_support(trues2, predicts2, average='binary')
+                p3, r3, f3, _ = precision_recall_fscore_support(trues3, predicts3, average='binary')
+                p4, r4, f4, _ = precision_recall_fscore_support(trues4, predicts4, average='binary')
+                p5, r5, f5, _ = precision_recall_fscore_support(trues5, predicts5, average='binary')
+                p = weights[1] * p1+weights[2]*p2+weights[3]*p3+weights[4]*p4+weights[5]*p5
+                r = weights[1] * r1+weights[2]*r2+weights[3]*r3+weights[4]*r4+weights[5]*r5
+                f = weights[1] * f1 + weights[2] * f2 + weights[3] * f3 + weights[4] * f4 + weights[5] * f5
+                print("Type-1" + ": " + str(p1) + " " + str(r1) + " " + str(f1))
+                print("Type-2" + ": " + str(p2) + " " + str(r2) + " " + str(f2))
+                print("Type-3" + ": " + str(p3) + " " + str(r3) + " " + str(f3))
+                print("Type-4" + ": " + str(p4) + " " + str(r4) + " " + str(f4))
+                print("Type-5" + ": " + str(p5) + " " + str(r5) + " " + str(f5))
+                print('epoch:{}; p:[]; r:{}; f:{}'.format(epoch,p,r,f))
+            else:
+                p, r, f, _ = precision_recall_fscore_support(trues, predicts, average='binary')
+                print('epoch:{}; p:[]; r:{}; f:{}'.format(epoch,p,r,f))
+        else:
+            print('epoch:{}; acc:{}'.format(epoch,epoch_acc/float(epoch_num)))
+
+
         #evaluate
-        #clone
         predicts1 = []
         trues1 = []
         predicts2 = []
@@ -239,12 +290,18 @@ def main():
         predicts5 = []
         trues5 = []
 
+        p, r, f = 0.0, 0.0, 0.0
+        p1, r1, f1 = 0.0, 0.0, 0.0
+        p2, r2, f2 = 0.0, 0.0, 0.0
+        p3, r3, f3 = 0.0, 0.0, 0.0
+        p4, r4, f4 = 0.0, 0.0, 0.0
+        p5, r5, f5 = 0.0, 0.0, 0.0
         #cla
         total_acc = 0.0
         total = 0.0
         
         model.eval()
-        for i, item in enumerate(tqdm(dataloader_eval)):
+        for i, item in enumerate(tqdm(test_loader)):
             if clone:#克隆的evalute
                 with torch.no_grad():
                     index, code1, code2, labels = item
@@ -311,7 +368,7 @@ def main():
                     edfg = dgl.graph((srcEdfg, dstEdfg)).to(device)
                     sgFeat = th.FloatTensor(node2emb(sgInfo, args.datasetName)).to(device)
                     edfgFeat = th.FloatTensor(node2emb(edfgInfo, args.datasetName)).to(device)
-                    res = model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
+                    logits = model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
                     # calc training acc
                     _, predicted = torch.max(logits.data, 1)
                     total_acc += (predicted == labels).sum()
@@ -339,7 +396,6 @@ def main():
                     print("Total testing results(P,R,F1):%.3f, %.3f, %.3f" % (precision, recall, f1))
         else:
             print("epoch: {}, Testing results(Acc):{}".format(epoch+1,total_acc / total))
-
 
 if __name__ == '__main__':
     main()

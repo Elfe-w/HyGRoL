@@ -1,3 +1,4 @@
+
 import argparse
 import dgl
 import numpy as np
@@ -31,12 +32,18 @@ def node2emb(nodeInfo, keyword='gcj'):
             str = v.replace("\n", "")
             list = str.split()
             # print(word2vec[list[0]])
+            if list[0] not in vocab:
+                print(nodeInfo,"======",list[0])
             nodeemb.append(word2vec[list[0]])
     else:
         if type(nodeInfo).__name__ == 'list':
             for v in nodeInfo:
                 str = v.replace("\n", "")
                 list = str.split()
+                if list[0] not in vocab:
+                    print(nodeInfo, "======", list[0])
+                    print('v',v)
+                    print('str',str)
                 nodeemb.append(word2vec[list[0]])
     return nodeemb
 
@@ -51,7 +58,7 @@ def main():
                         type=int, default=100)
     parser.add_argument('--batch_size', '-b',
                         help='number of batch_size to train',
-                        type=int, default=8)
+                        type=int, default=16)
     parser.add_argument('--learning_rate', '-lr',
                         help='Learning rate',
                         type=float, default=0.0001)
@@ -70,15 +77,15 @@ def main():
     parser.add_argument('--func_path', '-fp',
                         help='The path to source code dataset',
                         type=str,
-                        default='data/gcj_funcs.pkl')
+                        default='data/oj_funcs.pkl')
     parser.add_argument('--clone_pair_path', '-cpp',
                         help='The path to source code dataset',
                         type=str,
-                        default='data/gcj_pair_ids.pkl')
+                        default='data/oj_pair_ids.pkl')
     parser.add_argument('--datasetName', '-dn',
                         help='The name to the datasetName',
                         type=str,choices=('oj', 'gcj'),
-                        default='gcj')
+                        default='oj')
     parser.add_argument('--model_path', '-mp',
                         help='The path to save model',
                         type=str,
@@ -99,34 +106,51 @@ def main():
             parserCode = claPipline
         else:
             raise Exception("wrong dataName!")
-
-    from test import Classifier
     model = JKNet(args.n_units,n_layers=args.n_layers, n_units=args.n_units).to(device)
-    print(model)
     shuffle = True
     train_loader, validate_loader, test_loader = split_dataset(Dataset,shuffle,args.batch_size,args.train_ratio,args.val_ratio)
 
 
     optimizer = th.optim.Adam(model.parameters(), lr=args.learning_rate)
 
+
     for epoch in range(1, args.epochs + 1):
         model.train()
         for i, item in enumerate(tqdm(train_loader)):
             index, code, labels = item
+            print('index',index)
+            torch.save(index, 'index.pt')
+            torch.save(code,'code.pt')
             nodeInfo, srcSg, srcEdfg, dstSg, dstEdfg, nodeNum, sgInfo, edfgInfo = parserCode(code,dataSetName=args.datasetName)
             Feat = th.FloatTensor(node2emb(nodeInfo,args.datasetName)).to(device)
             sg = dgl.graph((srcSg, dstSg)).to(device)
             edfg = dgl.graph((srcEdfg, dstEdfg)).to(device)
             sgFeat = th.FloatTensor(node2emb(sgInfo,args.datasetName)).to(device)
             edfgFeat = th.FloatTensor(node2emb(edfgInfo,args.datasetName)).to(device)
-            res =  model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
-            loss = supcon(res,labels)
-            
-            loss.requires_grad_(True)
-            print('loss',loss)
-            loss.backward()
-            optimizer.step()
+            # res =  model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
+            # loss = supcon(res,labels)
+            # th.save(model.state_dict(), args.model_path)
+            # loss.requires_grad_(True)
+            # print('loss',loss)
+            # loss.backward()
+            # optimizer.step()
             # break
+
+        model.eval()
+        with torch.no_grad():
+            for i, item in enumerate(tqdm(test_loader)):
+                index, code, labels = item
+                nodeInfo, srcSg, srcEdfg, dstSg, dstEdfg, nodeNum, sgInfo, edfgInfo = parserCode(code,
+                                                                                                 dataSetName=args.datasetName)
+                Feat = th.FloatTensor(node2emb(nodeInfo, args.datasetName)).to(device)
+                sg = dgl.graph((srcSg, dstSg)).to(device)
+                edfg = dgl.graph((srcEdfg, dstEdfg)).to(device)
+                sgFeat = th.FloatTensor(node2emb(sgInfo, args.datasetName)).to(device)
+                edfgFeat = th.FloatTensor(node2emb(edfgInfo, args.datasetName)).to(device)
+                res = model(nodeNum, sg, edfg, Feat, sgFeat, edfgFeat)
+                loss = supcon(res, labels)
+                print('test loss: ', loss)
+                # break
 
     th.save(model.state_dict(), args.model_path)
 
