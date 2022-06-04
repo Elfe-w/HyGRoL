@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import numpy as np
 import math, copy, time
 from torch.autograd import Variable
+from util import nor
 
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
@@ -15,44 +16,56 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout, max_len=100000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
+        self.d_model = d_model
 
         # Compute the positional encodings once in log space.
-        pe = th.zeros(max_len, d_model)
-        position = th.arange(0, max_len).unsqueeze(1)
-        div_term = th.exp(th.arange(0, d_model, 2) *
-                             -(math.log(10000.0) / d_model))
+        # pe = th.zeros(max_len, d_model)
+        # position = th.arange(0, max_len).unsqueeze(1)
+        # div_term = th.exp(th.arange(0, d_model, 2) *
+        #                      -(math.log(10000.0) / d_model))
+        # pe[:, 0::2] = th.sin(position * div_term)
+        # pe[:, 1::2] = th.cos(position * div_term)
+        # pe = pe.unsqueeze(0)
+        # self.register_buffer('pe', pe)
+    def peDef(self,depth):
+        pe = th.zeros(len(depth), self.d_model)
+        position = depth.unsqueeze(1)
+        div_term = th.exp(th.arange(0, self.d_model, 2) *
+                          -(math.log(10000.0) / self.d_model))
         pe[:, 0::2] = th.sin(position * div_term)
         pe[:, 1::2] = th.cos(position * div_term)
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
+        return pe
 
-    def forward(self, x):
+    def forward(self, x,depth):
         x = x.view(1,x.shape[0],-1)
-        y = self.pe[:, :x.size(1)]
-        x = x + Variable(self.pe[:, :x.size(1)],
+        pe = self.peDef(depth)
+        y = pe[:, :x.size(1)]
+        x = x + Variable(pe[:, :x.size(1)],
                          requires_grad=False)
         x = x.view(x.shape[1],-1)
         return self.dropout(x)
 
 class Gating(nn.Module):
-    def __init__(self,heads,in_feature,device):
+    def __init__(self,heads,in_feature,device,allow_zero_in_degree=True):
         super(Gating,self).__init__()
         self.heads=heads
-        self.lq=nn.Linear(in_feature, in_feature // heads)
-        self.lk1 = nn.Linear(in_feature, in_feature // heads)
-        self.lk2 = nn.Linear(in_feature, in_feature // heads)
-        self.lv1 = nn.Linear(in_feature, in_feature // heads)
-        self.lv2 = nn.Linear(in_feature, in_feature // heads)
+        self.lq=GCNConv(in_feature, in_feature // heads,allow_zero_in_degree= allow_zero_in_degree)
+        self.lk1 = GCNConv(in_feature, in_feature // heads,allow_zero_in_degree= allow_zero_in_degree)
+        self.lk2 = GATConv(in_feature, in_feature // heads,1,allow_zero_in_degree= allow_zero_in_degree)
+        self.lv1 = GCNConv(in_feature, in_feature // heads,allow_zero_in_degree= allow_zero_in_degree)
+        self.lv2 = GATConv(in_feature, in_feature // heads,1,allow_zero_in_degree= allow_zero_in_degree)
         self.lh = nn.Linear( in_feature, in_feature)
         self.scale = th.sqrt(th.FloatTensor([in_feature // heads])).to(device)
-    def forward(self,Q,K,V):
+    def forward(self,Q,K,V,sg,edfg,sgFeat,edfgFeat):
         list_concat = []
         for i in range(self.heads):
-            q=self.lq(Q)
-            k1=self.lk1(K)
-            k2=self.lk2(V)
-            v1=self.lv1(K)
-            v2=self.lv2(V)
+            q=self.lq(sg,Q,sgFeat)
+            k1=self.lk1(sg,K,sgFeat)
+            k2=self.lk2(edfg,V,edfgFeat)
+            v1=self.lv1(sg,K,sgFeat)
+            v2=self.lv2(edfg,V,edfgFeat)
 
             kv1=th.sum(th.mul(q,k1), dim=(1,), keepdim=True)
             kv2 = th.sum(th.mul(q, k2), dim=(1,), keepdim=True)
@@ -104,6 +117,7 @@ class JKNet(th.nn.Module):
         self.gating = Gating(gating_head, n_units, device)
         self.pooling = pooling
         self.pe = PositionalEncoding(in_features,dropout)
+        self.edgelayer = nn.Linear(in_features, n_units)
         if supcon:
             self.supcon = True
             self.head = nn.Linear(in_features, in_features)
@@ -114,29 +128,38 @@ class JKNet(th.nn.Module):
                     GCNConv(n_units, n_units,allow_zero_in_degree= allow_zero_in_degree))
             setattr(self, 'gatconv{}'.format(i),
                     GATConv(n_units, n_units,gat_head,allow_zero_in_degree= allow_zero_in_degree))
-            setattr(self, 'dropout{}'.format(i), th.nn.Dropout(0.5))
+            setattr(self, 'bn{}'.format(i), th.nn.BatchNorm1d(n_units))
+            setattr(self, 'dropout{}'.format(i), th.nn.Dropout(dropout))
+
         self.concatLayer1 = nn.Linear(n_layers * n_units, n_units)
+        self.dropoutc1 = nn.Dropout(dropout)
         self.concatLayer2 = nn.Linear(n_layers * n_units, n_units)
-    def forward(self, node_num,sg,edfg,Feat,sgFeat,edfgFeat):
+        self.dropoutc2 = nn.Dropout(dropout)
+    def forward(self, node_num,sg,edfg,Feat,sgFeat,edfgFeat,depth):
         layer_outputs1 = []
         layer_outputs2 = []
-        Feat1 = self.pe.forward(Feat)
-        Feat1 = self.gcnconv0(sg,Feat1,sgFeat)
-        Feat2 = self.gatconv0(edfg,Feat,edfgFeat)
-        for i in range(self.n_layers):
-            dropout = getattr(self, 'dropout{}'.format(i))
+        Feat1 = self.pe.forward(Feat,depth)
+        Feat1 = F.relu(self.gcnconv0(sg,Feat1,sgFeat))
+        Feat2 = F.relu(self.gatconv0(edfg,Feat,edfgFeat))
+        sgFeat = self.dropout0(F.relu(self.edgelayer(sgFeat)))
+        edfgFeat = self.dropout0(F.relu(self.edgelayer(edfgFeat)))
+        layer_outputs1.append(Feat1)
+        layer_outputs2.append(Feat2)
+        for i in range(1,self.n_layers):
             gcnconv = getattr(self, 'gcnconv{}'.format(i))
             gatconv = getattr(self, 'gatconv{}'.format(i))
-            Feat1 = dropout(F.relu(gcnconv(sg,Feat1,sgFeat)))
-            Feat2 = dropout(F.relu(gatconv(edfg,Feat2,edfgFeat)))
+            bn = getattr(self, 'bn{}'.format(i))
+            dropout = getattr(self, 'dropout{}'.format(i))
+            Feat1 = dropout(F.relu(bn(gcnconv(sg,Feat1,sgFeat))))
+            Feat2 = dropout(F.relu(bn(gatconv(edfg,Feat2,edfgFeat))))
             layer_outputs1.append(Feat1)
             layer_outputs2.append(Feat2)
-
         h1 = th.cat(layer_outputs1, dim=1)
         h2 = th.cat(layer_outputs2, dim=1)
-        h1 = self.concatLayer1(h1)
-        h2 = self.concatLayer2(h2)
-        node_feat = self.gating(h1, h1, h2)
+        h1 = self.dropoutc1(F.relu(self.concatLayer1(h1)))
+        h2 = self.dropoutc2(F.relu(self.concatLayer2(h2)))
+        # node_feat = h1+h2
+        node_feat = self.gating(h1, h1, h2,sg,edfg,sgFeat,edfgFeat)
         ast_feat = self.pooling(node_num, node_feat)
         if self.supcon:
             ast_feat = F.normalize(self.head(ast_feat), dim=1)
@@ -169,10 +192,10 @@ class CLA(th.nn.Module):
             nn.Dropout(dropout),
             nn.Linear(128, out_features),
         )
-    def forward(self, node_num, sg, edfg, Feat, sgFeat, edfgFeat,pre_model_path = ""):
+    def forward(self, node_num, sg, edfg, Feat, sgFeat, edfgFeat,depth,pre_model_path = ""):
         if pre_model_path:
             self.jknet.load_state_dict(torch.load(pre_model_path))
-        ast_feat = self.jknet(node_num, sg, edfg, Feat, sgFeat, edfgFeat)
+        ast_feat = self.jknet(node_num, sg, edfg, Feat, sgFeat, edfgFeat,depth)
         res = self.cla(ast_feat)
         return res
 
@@ -197,17 +220,20 @@ class CLO(th.nn.Module):
                 n_units=n_units, dropout=dropout,
                  allow_zero_in_degree=allow_zero_in_degree, device=device,supcon=False)
         self.cla = nn.Sequential(
-            nn.Linear( n_units, 128),
+            nn.Linear( n_units, 64),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(128, out_features),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(32, out_features),
         )
     def forward(self, node_num1, sg1, edfg1, Feat1, sgFeat1, edfgFeat1,
-                node_num2, sg2, edfg2, Feat2, sgFeat2, edfgFeat2,pre_model_path = ""):
+                node_num2, sg2, edfg2, Feat2, sgFeat2, edfgFeat2,depth1,depth2,pre_model_path = ""):
         if pre_model_path:
             self.jknet.load_state_dict(torch.load(pre_model_path))
-        ast_out1 = self.jknet(node_num1, sg1, edfg1, Feat1, sgFeat1, edfgFeat1)
-        ast_out2 = self.jknet(node_num2, sg2, edfg2, Feat2, sgFeat2, edfgFeat2)
+        ast_out1 = self.jknet(node_num1, sg1, edfg1, Feat1, sgFeat1, edfgFeat1,depth1)
+        ast_out2 = self.jknet(node_num2, sg2, edfg2, Feat2, sgFeat2, edfgFeat2,depth2)
 
         ast_out = th.abs(th.add(ast_out1, -ast_out2))
         res = self.cla(ast_out)
