@@ -55,18 +55,21 @@ allEdfgSrc = []
 allEdfgDst = []
 allEdfgInfo = []
 batchAstNode = []
+batchDepth = []
+nodeDepth = []
 
 
 def flagInit():
     global depth,varDec,memRef,forPar,varName2info,nodeInfo,nodeInfoRep
     global edfgEdgSrc,edfgEdgDst,edfgEdgInfo,sgEdgSrc,sgEdgDst,sgEdgInfo,lastId
-    global declFlag,allNodeType,needRepNodeInfo,ifFlag,ifCon,ifConId,ifDepth,ifSrc,ifDst,dataSrc,dataDst
+    global declFlag,allNodeType,needRepNodeInfo,ifFlag,ifCon,ifConId,ifDepth,ifSrc,ifDst,dataSrc,dataDst,nodeDepth
     depth = 0
     varDec = False
     memRef = False
     forPar = False
     varName2info = {}  # 由于解析工具的不同，他的深度应该保存的是Decl节点的深度
     nodeInfo = {}
+    nodeDepth = []
     nodeInfoRep = {}
     edfgEdgSrc = []
     edfgEdgDst = []
@@ -120,7 +123,7 @@ def searchDec(memRef,id,depth):
     edfgEdgDst.append(id)
 
 #pycparser中所有的固有节点：
-def read_cnode(nodePath='E:\\00-HGCR\\HGCR\\ggg\\dataset\\CnodeType.txt'):
+def read_cnode(nodePath='dataset/CnodeType.txt'):
     f = open(nodePath, encoding="utf-8")
     res = f.readlines()
     for type in res:
@@ -152,11 +155,12 @@ def node_dfs(node,digNum=0):
 
 
 def create_graph(node, depth=0):
-    global ID,nodeInfo,varName2info,lastId,ifFlag,ifDepth,ifCon,ifConId,dataDst,dataSrc
+    global ID,nodeInfo,varName2info,lastId,ifFlag,ifDepth,ifCon,ifConId,dataDst,dataSrc,batchDepth,nodeDepth
     parentID = ID
     current = SingleNode(node)
     token = current.get_token()
     nodeInfo[ID] = token
+    nodeDepth.append(depth)
     '''
     如果token不在原定解析出节点里面，那么就放在待置换的字典中最后进行置换
     '''
@@ -319,7 +323,7 @@ def print_code():
 def parserC(code):
     parser = c_parser.CParser()
     ast = parser.parse(code)
-    global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo,batchAstNode
+    global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo,batchAstNode,batchDepth
     tempId = ID
     # java_trans_path_list(code)
     ID = tempId
@@ -344,6 +348,7 @@ def parserC(code):
     allEdfgDst += edfgEdgDst
     allSgInfo += sgEdgInfo
     allEdfgInfo += edfgEdgInfo
+    batchDepth += nodeDepth
     '''
     中间的边生成
     '''
@@ -361,8 +366,9 @@ def parserC(code):
     flagInit()
 
 def parserCForCorpus(code):
-    read_cnode()
+
     flagInit()
+    read_cnode()
     parser = c_parser.CParser()
     ast = parser.parse(code)
     global  ID,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allEdfgInfo,allSgInfo,nodeInfo
@@ -392,7 +398,7 @@ def claPipline(data,dataSetName=''):
     :param data:
     :return:
     '''
-    global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo
+    global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo,batchDepth
     ID = 0
     allNodeInfo = {}
     allSgSrc = []
@@ -402,6 +408,7 @@ def claPipline(data,dataSetName=''):
     allEdfgDst = []
     allEdfgInfo = []
     batchAstNode = []
+    batchDepth = []
 
 
     if type(data).__name__ == 'tuple':
@@ -411,7 +418,7 @@ def claPipline(data,dataSetName=''):
     else:
         read_cnode()
         parserC(data)
-    return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo
+    return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo,batchDepth
 
 def cloPipline(data1,data2,dataSetName=''):
     '''
@@ -419,7 +426,7 @@ def cloPipline(data1,data2,dataSetName=''):
     :param data:
     :return:
     '''
-    global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo
+    global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo,batchDepth
     ID = 0
     allNodeInfo = {}
     allSgSrc = []
@@ -429,10 +436,11 @@ def cloPipline(data1,data2,dataSetName=''):
     allEdfgDst = []
     allEdfgInfo = []
     batchAstNode = []
+    batchDepth = []
 
     srcSg1, srcEdfg1, dstSg1, dstEdfg1, nodeNum1, \
     srcSg2, srcEdfg2, dstSg2, dstEdfg2, \
-    nodeNum2, sgInfo1, edfgInfo1, sgInfo2, edfgInfo2, nodeInfo1, nodeInfo2 = [list() for x in range(16)]
+    nodeNum2, sgInfo1, edfgInfo1, sgInfo2, edfgInfo2, nodeInfo1, nodeInfo2 ,depth1,depth2= [list() for x in range(18)]
     read_cnode()
     if type(data1).__name__ == 'tuple':
         for code in data1:
@@ -445,6 +453,7 @@ def cloPipline(data1,data2,dataSetName=''):
             sgInfo1 = copy.deepcopy(allSgInfo)
             edfgInfo1 = copy.deepcopy(allEdfgInfo)
             nodeInfo1 = copy.deepcopy(allNodeInfo)
+            depth1 = copy.deepcopy(batchDepth)
 
     allNodeInfo = {}
     allSgSrc = []
@@ -454,6 +463,7 @@ def cloPipline(data1,data2,dataSetName=''):
     allEdfgDst = []
     allEdfgInfo = []
     batchAstNode = []
+    batchDepth = []
     ID = 0
     if type(data2).__name__ == 'tuple':
         for code in data2:
@@ -467,9 +477,13 @@ def cloPipline(data1,data2,dataSetName=''):
         sgInfo2 = copy.deepcopy(allSgInfo)
         edfgInfo2 = copy.deepcopy(allEdfgInfo)
         nodeInfo2 = copy.deepcopy(allNodeInfo)
+        depth2 = copy.deepcopy(batchDepth)
+    if len(depth1)==len(nodeInfo1) and len(depth2)==len(nodeInfo2):
+        print('cparser 482   clo c true true.....')
     return nodeInfo1, nodeInfo2, srcSg1, srcEdfg1, dstSg1, dstEdfg1, nodeNum1, \
            srcSg2, srcEdfg2, dstSg2, dstEdfg2, \
-           nodeNum2, sgInfo1, edfgInfo1, sgInfo2, edfgInfo2
+           nodeNum2, sgInfo1, edfgInfo1, sgInfo2, edfgInfo2,\
+           depth1,depth2
 
 
 

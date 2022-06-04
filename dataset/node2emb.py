@@ -74,8 +74,8 @@ def pipline(keyword):
 
 if __name__ == '__main__':
     pipline('oj')
-    pipline('gcj')
-    pipline('bcb')
+    # pipline('gcj')
+    # pipline('bcb')
     # #Enumerator
     # embSavePath = '../data/emb/oj_w2v_128'
     # word2vec = Word2Vec.load(embSavePath).wv

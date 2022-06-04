@@ -57,11 +57,13 @@ allEdfgSrc = []
 allEdfgDst = []
 allEdfgInfo = []
 batchAstNode = []
+batchDepth = []
+nodeDepth = []
 
 #克隆需要两份存储
 
 def flagInit():
-    global depth,varDec,memRef,forPar,varName2info,nodeInfo,nodeInfoRep,batchAstNode
+    global depth,varDec,memRef,forPar,varName2info,nodeInfo,nodeInfoRep,batchAstNode,nodeDepth
     global edfgEdgSrc,edfgEdgDst,edfgEdgInfo,sgEdgSrc,sgEdgDst,sgEdgInfo,lastId
     global declFlag,allNodeType,needRepNodeInfo,ifFlag,ifCon,\
         ifConId,ifDepth,ifSrc,ifDst,dataSrc,dataDst
@@ -72,6 +74,7 @@ def flagInit():
     forPar = False
     varName2info = {}
     nodeInfo = {}
+    nodeDepth = []
     nodeInfoRep = {}
     edfgEdgSrc = []
     edfgEdgDst = []
@@ -206,10 +209,11 @@ def java_get_children(root):
 
 def create_graph(node,depth=0,parentType=''):
 
-    global ID,varDec, memRef,nodeInfo,varName2info,forPar,lastId,ifFlag,ifDepth,ifCon,ifConId,dataDst,dataSrc
+    global ID,varDec, memRef,nodeInfo,varName2info,forPar,lastId,ifFlag,ifDepth,ifCon,ifConId,dataDst,dataSrc,nodeDepth,batchDepth
     parentID=ID
     token, children = java_get_token(node), java_get_children(node)
     nodeInfo[ID] = token
+    nodeDepth.append(depth)
     '''
     解析过程中的变量类型替换变量名的的工作
     不能每次都变换parentType，因为VariableDeclarator下的两个节点，可能才出现定义的变量的名称
@@ -364,7 +368,7 @@ def parserJava(code,dataSetName = 'bcb'):
     ast=get_java_ast(code,dataSetName = dataSetName)
     global ID,allNodeInfo,allSgSrc,allSgDst,\
         allEdfgSrc,allEdfgDst,allSgInfo,\
-        allEdfgInfo,batchAstNode
+        allEdfgInfo,batchAstNode,batchDepth,batchDepth
     tempId = ID
     # java_trans_path_list(code,dataSetName = dataSetName)
     ID = tempId
@@ -390,6 +394,7 @@ def parserJava(code,dataSetName = 'bcb'):
     allEdfgDst += edfgEdgDst
     allSgInfo += sgEdgInfo
     allEdfgInfo += edfgEdgInfo
+    batchDepth += nodeDepth
 
     '''
     中间的边生成
@@ -428,7 +433,7 @@ def parserJavaForCorpus(code,dataSetName = 'bcb'):
 def pipline(data1,data2,dataSetName = 'bcb'):
 
     #克隆需要把两份代码存储起来
-    global ID, batchAstNode,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allSgInfo,allEdfgInfo
+    global ID, batchAstNode,allNodeInfo,allSgSrc,allSgDst,allEdfgSrc,allEdfgDst,allSgInfo,allEdfgInfo,batchDepth
     ID =0
     allNodeInfo = {}
     allSgSrc = []
@@ -442,7 +447,7 @@ def pipline(data1,data2,dataSetName = 'bcb'):
                  '../data/parserCode/' + dataSetName + '_edfg.txt']
     srcSg1,srcEdfg1,dstSg1,dstEdfg1,nodeNum1, \
     srcSg2, srcEdfg2, dstSg2, dstEdfg2,\
-    nodeNum2,sgInfo1,edfgInfo1,sgInfo2,edfgInfo2,nodeInfo1,nodeInfo2 = [list() for x in range(16)]
+    nodeNum2,sgInfo1,edfgInfo1,sgInfo2,edfgInfo2,nodeInfo1,nodeInfo2,depth1,depth2= [list() for x in range(18)]
     if type(data1).__name__ == 'tuple':
         for code in data1:
             parserJava(code,dataSetName = dataSetName)
@@ -454,6 +459,7 @@ def pipline(data1,data2,dataSetName = 'bcb'):
         sgInfo1 = copy.deepcopy(allSgInfo)
         edfgInfo1 = copy.deepcopy(allEdfgInfo)
         nodeInfo1 = copy.deepcopy(allNodeInfo)
+        depth1 = copy.deepcopy(batchDepth)
 
 
     allNodeInfo = {}
@@ -464,6 +470,7 @@ def pipline(data1,data2,dataSetName = 'bcb'):
     allEdfgDst = []
     allEdfgInfo = []
     batchAstNode = []
+    batchDepth = []
     ID = 0
     if type(data2).__name__ == 'tuple':
         for code in data2:
@@ -476,30 +483,34 @@ def pipline(data1,data2,dataSetName = 'bcb'):
         sgInfo2 = copy.deepcopy(allSgInfo)
         edfgInfo2 = copy.deepcopy(allEdfgInfo)
         nodeInfo2 = copy.deepcopy(allNodeInfo)
+        depth2 = copy.deepcopy(batchDepth)
+    if len(depth1)==len(nodeInfo1) and len(depth2)==len(nodeInfo2):
+        print('java 488   clo c true true.....')
     return nodeInfo1,nodeInfo2,srcSg1,srcEdfg1,dstSg1,dstEdfg1,nodeNum1, \
     srcSg2, srcEdfg2, dstSg2, dstEdfg2,\
-    nodeNum2,sgInfo1,edfgInfo1,sgInfo2,edfgInfo2
-def gcjPipline(data,dataSetName=''):
-    '''
-    每次处理一个批次的数据，同一批次的数据ID从0开始
-    :param data:
-    :return:
-    '''
-    global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo
-    ID = 0
-    allNodeInfo = {}
-    allSgSrc = []
-    allSgDst = []
-    allSgInfo = []
-    allEdfgSrc = []
-    allEdfgDst = []
-    allEdfgInfo = []
-    batchAstNode = []
-
-    if type(data).__name__ == 'tuple':
-        for code in data:
-            parserJava(code,dataSetName = dataSetName)
-    return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo
+    nodeNum2,sgInfo1,edfgInfo1,sgInfo2,edfgInfo2,\
+    depth1,depth2
+# def gcjPipline(data,dataSetName=''):
+#     '''
+#     每次处理一个批次的数据，同一批次的数据ID从0开始
+#     :param data:
+#     :return:
+#     '''
+#     global ID, batchAstNode, allNodeInfo, allSgSrc, allSgDst, allEdfgSrc, allEdfgDst, allSgInfo, allEdfgInfo
+#     ID = 0
+#     allNodeInfo = {}
+#     allSgSrc = []
+#     allSgDst = []
+#     allSgInfo = []
+#     allEdfgSrc = []
+#     allEdfgDst = []
+#     allEdfgInfo = []
+#     batchAstNode = []
+#
+#     if type(data).__name__ == 'tuple':
+#         for code in data:
+#             parserJava(code,dataSetName = dataSetName)
+#     return allNodeInfo,allSgSrc,allEdfgSrc,allSgDst,allEdfgDst,batchAstNode,allSgInfo,allEdfgInfo
 
 
 import pandas as pd

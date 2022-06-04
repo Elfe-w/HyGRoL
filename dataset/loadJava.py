@@ -2,7 +2,7 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
 import numpy as np
 import pandas as pd
-from javaParser import pipline,gcjPipline
+from javaParser import pipline
 '''
 每次可以返回一批次的的解析代码
 '''
@@ -19,11 +19,12 @@ class java_DATASET(Dataset):
         else:
             self.len = len(self.data)
         if dataSetName == 'bcb':
-            self.wrongData = [6430, 6425, 6397, 6400, 6400, 6402, 6399, 6399, 6397, 6423, 6412, 6436, 6414, 6426, 6432, 6426, 6426, 6429, 6402, 6430]
+            self.wrongData = [36728, 56546, 56682, 76428, 76591, 76719, 77018, 79250, 84135, 85502, 88331, 88939, 89840, 89910, 90041, 92748, 93395, 95195, 95215, 95474,6430, 6425, 6397, 6400,  6402, 6399, 6399, 6397, 6423, 6412, 6436, 6414, 6426, 6432, 6426, 6426, 6429, 6402, 6430]
         else:
             self.wrongData = []
+            self.label = self.data.loc[:, 'file_label'].tolist()
         self.code = self.data.loc[:, 'code'].tolist()
-        self.label = self.data.loc[:, 'file_label'].tolist()
+
         # self.code = self.data.loc[:,'code'].tolist()
         # self.label =self.data.loc[:,'file_label'].tolist()
         self.cloneLabel = self.clonePair.loc[:,'label'].tolist()
@@ -36,16 +37,17 @@ class java_DATASET(Dataset):
             return index, code,label-1
         else:
             if index in self.wrongData:
-                return -1,'nan','nan',[-1]
+                index = index-1
             c1Index = self.clonePair.loc[index,'id1']
             c2Index = self.clonePair.loc[index,'id2']
             label = self.clonePair.loc[index,'label']
             code1 = self.data.loc[self.data['id']==c1Index,'code']
             code2 = self.data.loc[self.data['id']==c2Index,'code']
-            for index, value in code1.items():
+
+            for i, value in code1.items():
                 code1 = value
                 break
-            for index, value in code2.items():
+            for i, value in code2.items():
                 code2 = value
                 break
             # print('code1',code1)
@@ -75,7 +77,6 @@ if __name__ == '__main__':
         print('step is {}, index is {}'.format(i, index))
         # print(type(code1),len(code1))
         # print(type(code2),len(code2))
-        gcjPipline(code,dataSetName = 'gcj')
         break
     # print(wrongData)
 
